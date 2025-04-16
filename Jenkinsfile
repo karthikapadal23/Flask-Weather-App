@@ -7,9 +7,9 @@ pipeline {
     }
 
     stages {
-        stage('Clone Repo') {
+      stage('Clone Repo') {
     steps {
-        git branch: 'main', url: 'https://github.com/karthikapadal23/Flask-Weather-App.git'
+        git 'https://github.com/karthikapadal23/Flask-Weather-App.git'
     }
 }
 
