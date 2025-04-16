@@ -1,29 +1,27 @@
 pipeline {
     agent any
 
-    // Environment variables for easy configuration
     environment {
         REPO_URL = 'https://github.com/karthikapadal23/Flask-Weather-App.git'
         BRANCH = 'main'
-        CREDENTIALS_ID = 'github-creds' // Must match your Jenkins credentials
-        WORKSPACE_DIR = 'app' // Explicit workspace directory
+        CREDENTIALS_ID = 'github-creds' // Your GitHub credentials ID in Jenkins
+        WORKSPACE_DIR = 'app' // Target folder for the cloned repo
     }
 
     stages {
         stage('Prepare Workspace') {
             steps {
-                // Clean workspace and create target directory
                 cleanWs()
                 sh """
                     mkdir -p ${WORKSPACE_DIR}
-                    echo "Workspace prepared at ${WORKSPACE_DIR}"
+                    echo "✅ Workspace prepared at ${WORKSPACE_DIR}"
                 """
             }
         }
 
         stage('Checkout Code') {
             steps {
-                // Explicit checkout with all required parameters
+                // Perform the Git checkout explicitly
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: "*/${BRANCH}"]],
@@ -38,12 +36,18 @@ pipeline {
                     ]]
                 ])
 
-                // Verify the checkout
+                // Verify repo status
                 sh """
-                    echo "Current directory: \$(pwd)"
-                    echo "Repository contents:"
-                    ls -la ${WORKSPACE_DIR}/
-                    cd ${WORKSPACE_DIR} && git status && git log -1 --oneline
+                    echo "🔍 Verifying Git checkout..."
+                    cd ${WORKSPACE_DIR}
+                    if [ -d .git ]; then
+                        echo "✅ .git directory exists"
+                        git status
+                        git log -1 --oneline
+                    else
+                        echo "❌ Git repository not found!"
+                        exit 1
+                    fi
                 """
             }
         }
@@ -51,11 +55,9 @@ pipeline {
         stage('Build and Deploy') {
             steps {
                 dir("${WORKSPACE_DIR}") {
-                    // Your build and deployment steps here
-                    sh 'echo "Build would execute here"'
-                    // Example:
-                    // sh 'docker build -t myapp .'
-                    // sh 'docker push myapp'
+                    // Replace this with your actual build commands
+                    sh 'echo "🔧 Build would execute here..."'
+                    // e.g., docker build, docker push, etc.
                 }
             }
         }
@@ -63,12 +65,10 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline execution completed"
-            // archiveArtifacts artifacts: "${WORKSPACE_DIR}/**", fingerprint: true
+            echo "🧹 Pipeline execution completed"
         }
         failure {
-            echo "Pipeline failed - check the logs"
-            // Add notification steps here if needed
+            echo "❌ Pipeline failed - please check the logs"
         }
     }
 }
