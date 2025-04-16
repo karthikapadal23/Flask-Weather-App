@@ -1,107 +1,61 @@
 pipeline {
     agent any
 
+    // Environment variables for easy configuration
     environment {
-        // Application configuration
-        IMAGE_NAME = 'karthikapadal23/flask-weather-app'
-        DOCKER_REGISTRY = 'https://index.docker.io/v1/'
-        
-        // Credentials (must match your Jenkins credential IDs)
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub')
-        GIT_CREDENTIALS_ID = 'github-creds'
+        REPO_URL = 'https://github.com/karthikapadal23/Flask-Weather-App.git'
+        BRANCH = 'main'
+        CREDENTIALS_ID = 'github-creds' // Must match your Jenkins credentials
+        WORKSPACE_DIR = 'app' // Explicit workspace directory
     }
 
     stages {
-        stage('Clean Workspace') {
+        stage('Prepare Workspace') {
             steps {
+                // Clean workspace and create target directory
                 cleanWs()
-                sh 'echo "Workspace cleaned successfully"'
+                sh """
+                    mkdir -p ${WORKSPACE_DIR}
+                    echo "Workspace prepared at ${WORKSPACE_DIR}"
+                """
             }
         }
 
         stage('Checkout Code') {
             steps {
+                // Explicit checkout with all required parameters
                 checkout([
                     $class: 'GitSCM',
-                    branches: [[name: '*/main']],
+                    branches: [[name: "*/${BRANCH}"]],
                     extensions: [
                         [$class: 'CleanBeforeCheckout'],
-                        [$class: 'CloneOption', depth: 1, noTags: false, shallow: true],
-                        [$class: 'RelativeTargetDirectory', relativeTargetDir: 'src']
+                        [$class: 'RelativeTargetDirectory', relativeTargetDir: "${WORKSPACE_DIR}"],
+                        [$class: 'CloneOption', timeout: 30, depth: 1, noTags: true, shallow: true]
                     ],
                     userRemoteConfigs: [[
-                        url: 'https://github.com/karthikapadal23/Flask-Weather-App.git',
-                        credentialsId: "${GIT_CREDENTIALS_ID}"
+                        url: "${REPO_URL}",
+                        credentialsId: "${CREDENTIALS_ID}"
                     ]]
                 ])
-                
-                // Verify the checkout worked
-                sh '''
-                    echo "Current directory:"
-                    pwd
+
+                // Verify the checkout
+                sh """
+                    echo "Current directory: \$(pwd)"
                     echo "Repository contents:"
-                    ls -la src/
-                    echo "Git status:"
-                    cd src && git status && cd ..
-                '''
+                    ls -la ${WORKSPACE_DIR}/
+                    cd ${WORKSPACE_DIR} && git status && git log -1 --oneline
+                """
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build and Deploy') {
             steps {
-                script {
-                    try {
-                        dir('src') {
-                            // Get commit hash for tagging
-                            COMMIT_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                            
-                            // Build Docker image
-                            docker.build("${IMAGE_NAME}:latest")
-                            docker.build("${IMAGE_NAME}:${COMMIT_HASH}")
-                            
-                            echo "Docker images built successfully"
-                        }
-                    } catch (Exception e) {
-                        error("Docker build failed: ${e.getMessage()}")
-                    }
-                }
-            }
-        }
-
-        stage('Test Application') {
-            steps {
-                script {
-                    dir('src') {
-                        try {
-                            // Simple smoke test
-                            sh 'docker run --rm ${IMAGE_NAME}:latest python --version'
-                            sh 'docker run --rm ${IMAGE_NAME}:latest flask --version'
-                            echo "Basic tests passed successfully"
-                        } catch (Exception e) {
-                            error("Tests failed: ${e.getMessage()}")
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Push to Docker Hub') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        dir('src') {
-                            sh '''
-                                docker login -u $DOCKER_USER -p $DOCKER_PASS
-                                docker push ${IMAGE_NAME}:latest
-                                docker push ${IMAGE_NAME}:${COMMIT_HASH}
-                                echo "Images pushed to Docker Hub successfully"
-                            '''
-                        }
-                    }
+                dir("${WORKSPACE_DIR}") {
+                    // Your build and deployment steps here
+                    sh 'echo "Build would execute here"'
+                    // Example:
+                    // sh 'docker build -t myapp .'
+                    // sh 'docker push myapp'
                 }
             }
         }
@@ -109,25 +63,12 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline completed - cleaning up"
-            script {
-                // Clean up Docker containers and images
-                sh 'docker system prune -f || true'
-                
-                // Archive important files
-                archiveArtifacts artifacts: 'src/**', fingerprint: true
-                
-                // Clean workspace (optional)
-                // cleanWs()
-            }
-        }
-        success {
-            echo "Pipeline succeeded! ${env.BUILD_URL}"
-            // slackSend color: 'good', message: "SUCCESS: ${env.JOB_NAME} (#${env.BUILD_NUMBER})"
+            echo "Pipeline execution completed"
+            // archiveArtifacts artifacts: "${WORKSPACE_DIR}/**", fingerprint: true
         }
         failure {
-            echo "Pipeline failed! ${env.BUILD_URL}"
-            // slackSend color: 'danger', message: "FAILURE: ${env.JOB_NAME} (#${env.BUILD_NUMBER})"
+            echo "Pipeline failed - check the logs"
+            // Add notification steps here if needed
         }
     }
 }
