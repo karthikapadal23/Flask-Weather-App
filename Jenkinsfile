@@ -2,50 +2,29 @@ pipeline {
     agent any
 
     environment {
-        REPO_URL = 'https://github.com/karthikapadal23/Flask-Weather-App.git'
-        BRANCH = 'main'
-        GIT_CREDENTIALS_ID = 'github-creds'
-        DOCKER_CREDENTIALS_ID = 'dockerhub-creds'
-        WORKSPACE_DIR = 'app'
-        IMAGE_NAME = 'karthikapadal23/weather-app' // Make sure this matches your Docker Hub repo name
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub') // You must set this in Jenkins > Credentials
     }
 
     stages {
-        stage('Prepare Workspace') {
+        stage('Clone Repository') {
             steps {
-                cleanWs()
-                sh 'mkdir -p ${WORKSPACE_DIR}'
+                git url: 'https://github.com/karthikapadal23/Flask-Weather-App.git', branch: 'main'
             }
         }
 
-        stage('Checkout Code') {
+        stage('Build Docker Image') {
             steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: "*/${BRANCH}"]],
-                    extensions: [
-                        [$class: 'CleanBeforeCheckout'],
-                        [$class: 'RelativeTargetDirectory', relativeTargetDir: "${WORKSPACE_DIR}"],
-                        [$class: 'CloneOption', depth: 1, noTags: true, shallow: true]
-                    ],
-                    userRemoteConfigs: [[
-                        url: "${REPO_URL}",
-                        credentialsId: "${GIT_CREDENTIALS_ID}"
-                    ]]
-                ])
+                script {
+                    dockerImage = docker.build("karthikapadal23/flask-weather-app")
+                }
             }
         }
 
-        stage('Build and Push Docker Image') {
+        stage('Push to Docker Hub') {
             steps {
-                dir("${WORKSPACE_DIR}") {
-                    script {
-                        docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
-                            sh """
-                                docker build -t ${IMAGE_NAME}:latest .
-                                docker push ${IMAGE_NAME}:latest
-                            """
-                        }
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', DOCKERHUB_CREDENTIALS) {
+                        dockerImage.push('latest')
                     }
                 }
             }
@@ -53,11 +32,11 @@ pipeline {
     }
 
     post {
-        always {
-            echo "Pipeline execution completed."
-        }
         failure {
-            echo "Pipeline failed - please check the logs."
+            echo '❌ Pipeline failed. Check error logs.'
+        }
+        success {
+            echo '✅ Pipeline completed successfully.'
         }
     }
 }
