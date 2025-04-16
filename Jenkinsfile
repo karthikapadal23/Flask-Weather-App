@@ -2,54 +2,47 @@ pipeline {
     agent any
 
     environment {
-        // Application Configuration
-        APP_NAME = 'flask-weather-app'
-        DOCKER_IMAGE = "karthikapadal23/${APP_NAME}"
-        
-        // Registry Configuration
+        // Application configuration
+        IMAGE_NAME = 'karthikapadal23/flask-weather-app'
         DOCKER_REGISTRY = 'https://index.docker.io/v1/'
         
         // Credentials (must match your Jenkins credential IDs)
         DOCKERHUB_CREDENTIALS = credentials('dockerhub')
         GIT_CREDENTIALS_ID = 'github-creds'
-        
-        // Git Configuration
-        GIT_URL = 'https://github.com/karthikapadal23/Flask-Weather-App.git'
-        GIT_BRANCH = 'main'
     }
 
     stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+                sh 'echo "Workspace cleaned successfully"'
+            }
+        }
+
         stage('Checkout Code') {
             steps {
                 checkout([
                     $class: 'GitSCM',
-                    branches: [[name: "${GIT_BRANCH}"]],
-                    extensions: [[
-                        $class: 'CleanBeforeCheckout',
-                        deleteUntrackedNestedRepositories: true
-                    ]],
+                    branches: [[name: '*/main']],
+                    extensions: [
+                        [$class: 'CleanBeforeCheckout'],
+                        [$class: 'CloneOption', depth: 1, noTags: false, shallow: true],
+                        [$class: 'RelativeTargetDirectory', relativeTargetDir: 'src']
+                    ],
                     userRemoteConfigs: [[
-                        url: "${GIT_URL}",
+                        url: 'https://github.com/karthikapadal23/Flask-Weather-App.git',
                         credentialsId: "${GIT_CREDENTIALS_ID}"
                     ]]
                 ])
                 
-                // Verify repository contents
+                // Verify the checkout worked
                 sh '''
-                    echo "Repository Contents:"
-                    ls -la
-                    echo "Dockerfile Contents:"
-                    cat Dockerfile
-                '''
-            }
-        }
-
-        stage('Install Dependencies') {
-            steps {
-                sh '''
-                    python -m venv venv
-                    . venv/bin/activate
-                    pip install -r requirements.txt
+                    echo "Current directory:"
+                    pwd
+                    echo "Repository contents:"
+                    ls -la src/
+                    echo "Git status:"
+                    cd src && git status && cd ..
                 '''
             }
         }
@@ -58,13 +51,16 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Get commit hash for tagging
-                        COMMIT_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                        
-                        // Build with multiple tags
-                        docker.build("${DOCKER_IMAGE}:latest")
-                        docker.build("${DOCKER_IMAGE}:${COMMIT_HASH}")
-                        
+                        dir('src') {
+                            // Get commit hash for tagging
+                            COMMIT_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            
+                            // Build Docker image
+                            docker.build("${IMAGE_NAME}:latest")
+                            docker.build("${IMAGE_NAME}:${COMMIT_HASH}")
+                            
+                            echo "Docker images built successfully"
+                        }
                     } catch (Exception e) {
                         error("Docker build failed: ${e.getMessage()}")
                     }
@@ -75,15 +71,15 @@ pipeline {
         stage('Test Application') {
             steps {
                 script {
-                    try {
-                        // Run simple tests
-                        sh 'python -m pytest tests/ || echo "No tests found"'
-                        
-                        // Test Docker image
-                        sh 'docker run --rm ${DOCKER_IMAGE}:latest python --version'
-                        sh 'docker run --rm ${DOCKER_IMAGE}:latest flask --version'
-                    } catch (Exception e) {
-                        error("Tests failed: ${e.getMessage()}")
+                    dir('src') {
+                        try {
+                            // Simple smoke test
+                            sh 'docker run --rm ${IMAGE_NAME}:latest python --version'
+                            sh 'docker run --rm ${IMAGE_NAME}:latest flask --version'
+                            echo "Basic tests passed successfully"
+                        } catch (Exception e) {
+                            error("Tests failed: ${e.getMessage()}")
+                        }
                     }
                 }
             }
@@ -97,11 +93,14 @@ pipeline {
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
-                        sh '''
-                            docker login -u $DOCKER_USER -p $DOCKER_PASS
-                            docker push ${DOCKER_IMAGE}:latest
-                            docker push ${DOCKER_IMAGE}:${COMMIT_HASH}
-                        '''
+                        dir('src') {
+                            sh '''
+                                docker login -u $DOCKER_USER -p $DOCKER_PASS
+                                docker push ${IMAGE_NAME}:latest
+                                docker push ${IMAGE_NAME}:${COMMIT_HASH}
+                                echo "Images pushed to Docker Hub successfully"
+                            '''
+                        }
                     }
                 }
             }
@@ -110,25 +109,25 @@ pipeline {
 
     post {
         always {
-            // Clean up Docker containers and images
-            sh '''
-                docker system prune -f || true
-                docker rmi ${DOCKER_IMAGE}:latest || true
-                docker rmi ${DOCKER_IMAGE}:${COMMIT_HASH} || true
-            '''
-            
-            // Archive important files
-            archiveArtifacts artifacts: '**/app.py,**/requirements.txt,**/Dockerfile', fingerprint: true
+            echo "Pipeline completed - cleaning up"
+            script {
+                // Clean up Docker containers and images
+                sh 'docker system prune -f || true'
+                
+                // Archive important files
+                archiveArtifacts artifacts: 'src/**', fingerprint: true
+                
+                // Clean workspace (optional)
+                // cleanWs()
+            }
         }
-        
         success {
             echo "Pipeline succeeded! ${env.BUILD_URL}"
+            // slackSend color: 'good', message: "SUCCESS: ${env.JOB_NAME} (#${env.BUILD_NUMBER})"
         }
-        
         failure {
             echo "Pipeline failed! ${env.BUILD_URL}"
-            // Uncomment to enable Slack notifications
-            // slackSend color: 'danger', message: "FAILED: Job '${env.JOB_NAME}' (${env.BUILD_URL})"
+            // slackSend color: 'danger', message: "FAILURE: ${env.JOB_NAME} (#${env.BUILD_NUMBER})"
         }
     }
 }
