@@ -8,10 +8,10 @@ pipeline {
 
     stages {
         stage('Clone Repo') {
-            steps {
-                git 'https://github.com/karthikapadal23/Flask-Weather-App.git'
-            }
-        }
+    steps {
+        git branch: 'main', url: 'https://github.com/karthikapadal23/Flask-Weather-App.git'
+    }
+}
 
         stage('Build Docker Image') {
             steps {
