@@ -4,60 +4,49 @@ pipeline {
     environment {
         REPO_URL = 'https://github.com/karthikapadal23/Flask-Weather-App.git'
         BRANCH = 'main'
-        CREDENTIALS_ID = 'github-creds' // Your GitHub credentials ID in Jenkins
-        WORKSPACE_DIR = 'app' // Target folder for the cloned repo
+        GIT_CREDENTIALS_ID = 'github-creds'
+        DOCKER_CREDENTIALS_ID = 'dockerhub-creds'
+        WORKSPACE_DIR = 'app'
+        IMAGE_NAME = 'karthikapadal23/weather-app' // Make sure this matches your Docker Hub repo name
     }
 
     stages {
         stage('Prepare Workspace') {
             steps {
                 cleanWs()
-                sh """
-                    mkdir -p ${WORKSPACE_DIR}
-                    echo "✅ Workspace prepared at ${WORKSPACE_DIR}"
-                """
+                sh 'mkdir -p ${WORKSPACE_DIR}'
             }
         }
 
         stage('Checkout Code') {
             steps {
-                // Perform the Git checkout explicitly
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: "*/${BRANCH}"]],
                     extensions: [
                         [$class: 'CleanBeforeCheckout'],
                         [$class: 'RelativeTargetDirectory', relativeTargetDir: "${WORKSPACE_DIR}"],
-                        [$class: 'CloneOption', timeout: 30, depth: 1, noTags: true, shallow: true]
+                        [$class: 'CloneOption', depth: 1, noTags: true, shallow: true]
                     ],
                     userRemoteConfigs: [[
                         url: "${REPO_URL}",
-                        credentialsId: "${CREDENTIALS_ID}"
+                        credentialsId: "${GIT_CREDENTIALS_ID}"
                     ]]
                 ])
-
-                // Verify repo status
-                sh """
-                    echo "🔍 Verifying Git checkout..."
-                    cd ${WORKSPACE_DIR}
-                    if [ -d .git ]; then
-                        echo "✅ .git directory exists"
-                        git status
-                        git log -1 --oneline
-                    else
-                        echo "❌ Git repository not found!"
-                        exit 1
-                    fi
-                """
             }
         }
 
-        stage('Build and Deploy') {
+        stage('Build and Push Docker Image') {
             steps {
                 dir("${WORKSPACE_DIR}") {
-                    // Replace this with your actual build commands
-                    sh 'echo "🔧 Build would execute here..."'
-                    // e.g., docker build, docker push, etc.
+                    script {
+                        docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
+                            sh """
+                                docker build -t ${IMAGE_NAME}:latest .
+                                docker push ${IMAGE_NAME}:latest
+                            """
+                        }
+                    }
                 }
             }
         }
@@ -65,10 +54,10 @@ pipeline {
 
     post {
         always {
-            echo "🧹 Pipeline execution completed"
+            echo "Pipeline execution completed."
         }
         failure {
-            echo "❌ Pipeline failed - please check the logs"
+            echo "Pipeline failed - please check the logs."
         }
     }
 }
